@@ -1,5 +1,0 @@
-
-Qdrant=12480
-Ollama=3900
-Docling=8240
-OpenWebUI=7464

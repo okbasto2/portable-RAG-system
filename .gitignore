@@ -11,6 +11,7 @@ logs/
 .portable-fixed
 .qdrant-initialized
 .webui_secret_key
+.server-pids.txt
 *.tmp
 
 # Python cache files
