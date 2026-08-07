@@ -63,13 +63,7 @@ It combines state-of-the-art open-source AI services into a single folder that c
 
 ## ⚡ Quick Start
 
-### Option A: Pre-Packaged Portable Bundle (Recommended)
-
-1. Download the latest `enterprise-ai-stack-portable.zip` from [GitHub Releases](../../releases).
-2. Extract the folder anywhere (e.g., `C:\AI-Stack` or a USB Flash Drive).
-3. Double-click **`start-project.bat`**.
-
-### Option B: Build & Run from Source
+### 🚀 Automated Setup (Recommended)
 
 1. **Clone the Repository**:
    ```powershell
@@ -77,16 +71,23 @@ It combines state-of-the-art open-source AI services into a single folder that c
    cd portable-RAG-system
    ```
 
-2. **Automated Environment Provisioning**:
-   Run the setup script to download portable binaries and install locked dependencies:
+2. **Run Automated Provisioning**:
+   Run the setup script in PowerShell. It will automatically create all folder structures, download Portable Python 3.11, Qdrant, and Ollama binaries, install all dependencies, and patch Python launcher shebangs:
    ```powershell
    powershell -ExecutionPolicy Bypass -File setup-portable.ps1
    ```
 
 3. **Launch the Stack**:
-   ```cmd
-   start-project.bat
-   ```
+   Double-click **`start-project.bat`** (or run `.\start-project.bat` in CMD/PowerShell).
+
+---
+
+### 📦 Alternative: Pre-Packaged 1-Click Zip
+
+If you prefer to download a pre-built offline zip containing all binaries pre-installed:
+1. Download `enterprise-ai-stack-portable.zip` from [GitHub Releases](../../releases).
+2. Extract the folder anywhere (e.g. `C:\AI-Stack` or a USB Flash Drive).
+3. Double-click **`start-project.bat`**.
 
 ---
 
