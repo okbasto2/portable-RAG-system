@@ -1,11 +1,9 @@
 @echo off
-:: reset-project.bat
-:: Wipes all user data (users, chats, documents) but keeps config and models.
-:: Run this before copying the project to a new machine.
-
-SET "ROOT=%~dp0"
-SET "PYTHON=%ROOT%apps\python_env\python.exe"
-SET "SCRIPT=%ROOT%reset-data.py"
+SETLOCAL
+SET "SCRIPT_DIR=%~dp0"
+SET "ROOT_DIR=%~dp0..\"
+SET "PYTHON=%ROOT_DIR%apps\python_env\python.exe"
+SET "SCRIPT=%SCRIPT_DIR%reset-data.py"
 
 echo ===================================================
 echo   Enterprise AI Stack — Data Reset
@@ -26,5 +24,9 @@ echo.
 choice /C YN /M "Are you sure you want to proceed"
 if errorlevel 2 exit /b 0
 
-"%PYTHON%" "%SCRIPT%"
+if exist "%PYTHON%" (
+    "%PYTHON%" "%SCRIPT%"
+) else (
+    echo [ERROR] Portable python not found at %PYTHON%
+)
 pause

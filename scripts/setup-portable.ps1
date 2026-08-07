@@ -1,18 +1,11 @@
 <# 
   setup-portable.ps1
   Enterprise AI Stack -- Automated Setup Script
-
-  Automatically provisions the portable environment from scratch:
-    1. Creates the complete folder hierarchy.
-    2. Downloads & extracts Portable Python 3.11 embeddable.
-    3. Configures site-packages, downloads get-pip.py, & installs requirements.txt.
-    4. Downloads Qdrant vector database binary.
-    5. Downloads Ollama LLM engine binary.
-    6. Runs fix-portable.py to relocate Python shebangs for true portability.
 #>
 
 $ErrorActionPreference = "Stop"
-$ROOT = $PSScriptRoot
+$SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ROOT = Split-Path -Parent $SCRIPT_DIR
 Set-Location $ROOT
 
 Write-Host "====================================================" -ForegroundColor Cyan
@@ -105,7 +98,6 @@ if (-not (Test-Path $ollamaExe)) {
     $ollamaUrl = "https://ollama.com/download/OllamaSetup.exe"
     
     Invoke-WebRequest -Uri $ollamaUrl -OutFile $ollamaSetup -UseBasicParsing
-    # Install Ollama into apps/ollama directory
     Start-Process -FilePath $ollamaSetup -ArgumentList "/DIR=`"$ROOT\apps\ollama`" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
     Remove-Item $ollamaSetup -ErrorAction SilentlyContinue
     Write-Host "  [OK] Ollama installed." -ForegroundColor Green
@@ -115,11 +107,12 @@ if (-not (Test-Path $ollamaExe)) {
 
 # ── 6. Fix Relocatable Shebangs ────────────────────────────
 Write-Host "[6/6] Patching Python script shebangs for portability..." -ForegroundColor Yellow
-if (Test-Path "$ROOT\fix-portable.py") {
-    & $pythonExe "$ROOT\fix-portable.py"
+$fixerScript = "$SCRIPT_DIR\fix-portable.py"
+if (Test-Path $fixerScript) {
+    & $pythonExe $fixerScript
     Write-Host "  [OK] Shebang relocation complete." -ForegroundColor Green
 } else {
-    Write-Host "  [WARN] fix-portable.py not found." -ForegroundColor Red
+    Write-Host "  [WARN] fix-portable.py not found at $fixerScript" -ForegroundColor Red
 }
 
 Write-Host ""

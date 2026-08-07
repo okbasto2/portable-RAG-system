@@ -74,7 +74,7 @@ It combines state-of-the-art open-source AI services into a single folder that c
 2. **Run Automated Provisioning**:
    Run the setup script in PowerShell. It will automatically create all folder structures, download Portable Python 3.11, Qdrant, and Ollama binaries, install all dependencies, and patch Python launcher shebangs:
    ```powershell
-   powershell -ExecutionPolicy Bypass -File setup-portable.ps1
+   powershell -ExecutionPolicy Bypass -File scripts/setup-portable.ps1
    ```
 
 3. **Launch the Stack**:
@@ -93,18 +93,24 @@ If you prefer to download a pre-built offline zip containing all binaries pre-in
 
 ## 🔧 Management & Utility Scripts
 
-The stack provides administrative scripts for process lifecycle, diagnostics, and data management:
+The project keeps a clean root folder (`start-project.bat` & `stop-project.bat`) while internal management tools are neatly organized inside `scripts/`:
 
 ```
-├── start-project.bat       # Main launcher (runs launcher repair + launches server)
-├── stop-project.bat        # Graceful multi-service shutdown script
-├── start-server.ps1        # Core PowerShell orchestrator (pre-flight checks, GPU detection, logging)
-├── watchdog.ps1            # Active health monitoring & crash auto-recovery service
-├── fix-portable.bat        # One-click trigger for relocatable shebang repair
-├── fix-portable.py         # Relocates distlib launcher shebangs (#!<launcher_dir>\..\python.exe)
-├── diagnose-portable.bat   # System diagnostics (tests dependencies, ports, and VC++ redistributables)
-├── reset-project.bat       # Hard reset tool for data directories & state markers
-└── open-database.bat       # Quick shortcut for Qdrant Web Dashboard
+├── start-project.bat           # 1-Click Start (runs shebang repair + launches server)
+├── stop-project.bat            # 1-Click Stop (graceful shutdown for all services)
+├── README.md                   # Project documentation
+├── requirements.txt            # Python dependencies
+└── scripts/
+    ├── setup-portable.ps1      # Automated environment & binary downloader
+    ├── start-server.ps1        # Core PowerShell orchestrator (GPU detection, health checks)
+    ├── stop-server.ps1         # Multi-service graceful stopper
+    ├── watchdog.ps1            # Active health monitoring & crash auto-recovery service
+    ├── fix-portable.py         # Relocates distlib launcher shebangs (#!<launcher_dir>\..\python.exe)
+    ├── reset-data.py           # Data reset engine
+    ├── diagnose-portable.bat   # System diagnostic tool
+    ├── fix-portable.bat        # Manual shebang repair trigger
+    ├── reset-project.bat       # Hard data reset wrapper
+    └── open-database.bat       # Shortcut for Qdrant Web Dashboard
 ```
 
 ### Launching the Watchdog (Self-Healing Mode)
@@ -112,7 +118,7 @@ The stack provides administrative scripts for process lifecycle, diagnostics, an
 To enable automatic crash recovery for long-running deployments, start the watchdog companion in a separate terminal:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File watchdog.ps1
+powershell -ExecutionPolicy Bypass -File scripts/watchdog.ps1
 ```
 
 ---
@@ -126,7 +132,7 @@ When standard `pip` installs console scripts into a Python environment, it hardc
 #!C:\Users\Developer\Desktop\enterprise-ai-stack\apps\python_env\python.exe
 ```
 
-Our custom **`fix-portable.py`** inspects the binary headers of every executable launcher in `apps/python_env/Scripts/` and rewrites the shebang using `distlib`'s dynamic runtime token:
+Our custom **`scripts/fix-portable.py`** inspects the binary headers of every executable launcher in `apps/python_env/Scripts/` and rewrites the shebang using `distlib`'s dynamic runtime token:
 
 ```
 ✅ Relocated Shebang (Works Anywhere):
@@ -141,18 +147,15 @@ This ensures the stack resolves `python.exe` relative to the current folder, all
 
 ```
 enterprise-ai-stack/
+├── scripts/                 # Internal orchestration & management scripts
 ├── apps/                    # [Ignored in Git] Binary engines (Python, Ollama, Qdrant)
 ├── data/                    # [Ignored in Git] Storage for models, vectors, & user data
 ├── logs/                    # System logs per service component
 ├── snapshots/               # Qdrant vector database snapshots
 ├── storage/                 # Qdrant Raft consensus & index storage
 ├── requirements.txt         # Frozen Python dependencies
-├── fix-portable.py          # Portable shebang relocator engine
-├── start-server.ps1         # PowerShell server orchestrator
-├── watchdog.ps1             # Crash recovery monitoring service
-├── start-project.bat        # 1-Click Start Wrapper
-├── stop-project.bat         # 1-Click Stop Wrapper
-├── diagnose-portable.bat    # Diagnostics suite
+├── start-project.bat        # 1-Click Start Launcher
+├── stop-project.bat         # 1-Click Stop Launcher
 └── README.md                # Project documentation
 ```
 

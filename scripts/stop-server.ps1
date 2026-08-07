@@ -1,14 +1,11 @@
 <# 
   stop-server.ps1
   Enterprise AI Stack -- Graceful Shutdown
-  
-  Reads PIDs from .server-pids.txt and stops each process.
-  Tries graceful shutdown first (CloseMainWindow), then force-kills.
-  Only targets the exact processes that were started by start-server.ps1.
 #>
 
 $ErrorActionPreference = "Continue"
-$ROOT = Split-Path -Parent $MyInvocation.MyCommand.Path
+$SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
+$ROOT = Split-Path -Parent $SCRIPT_DIR
 $PID_FILE = "$ROOT\.server-pids.txt"
 
 Write-Output "===================================================="
@@ -17,7 +14,6 @@ Write-Output "===================================================="
 
 if (-not (Test-Path $PID_FILE)) {
     Write-Output "WARNING: No PID file found at $PID_FILE"
-    Write-Output "Services may have been started manually or already stopped."
     Write-Output "Falling back to image-name matching..."
     Write-Output ""
     
@@ -49,7 +45,6 @@ if ($entries.Count -eq 0) {
 }
 
 $stopOrder = @("OpenWebUI", "Docling", "Ollama", "Qdrant")
-$errors = 0
 
 foreach ($name in $stopOrder) {
     $entry = $entries | Where-Object { $_.Name -eq $name }
@@ -57,37 +52,25 @@ foreach ($name in $stopOrder) {
     
     Write-Output "  [$name] PID=$($entry.PID)"
     $proc = Get-Process -Id $entry.PID -ErrorAction SilentlyContinue
-    
-    if (-not $proc) {
-        Write-Output "    already stopped"
-        continue
-    }
-    
-    $graceful = $false
-    try {
-        $proc.CloseMainWindow()
-        $proc.WaitForExit(5000)
-        if ($proc.HasExited) { $graceful = $true }
-    } catch { }
-    
-    if ($graceful) {
-        Write-Output "    stopped gracefully"
-    } else {
-        Write-Output "    force-stopping..."
+    if ($proc) {
         try {
-            Stop-Process -Id $entry.PID -Force -ErrorAction Stop
-            Write-Output "    done"
+            $proc.CloseMainWindow() | Out-Null
+            Start-Sleep -Seconds 1
+            if (-not $proc.HasExited) {
+                $proc.Kill()
+            }
+            Write-Output "    [OK] Stopped"
         } catch {
-            Write-Output "    FAILED: $_"
-            $errors++
+            Write-Output "    [WARN] Force killing..."
+            Stop-Process -Id $entry.PID -Force -ErrorAction SilentlyContinue
         }
+    } else {
+        Write-Output "    Already stopped"
     }
 }
 
 Remove-Item $PID_FILE -Force -ErrorAction SilentlyContinue
-
 Write-Output ""
 Write-Output "===================================================="
 Write-Output "  Shutdown complete"
-if ($errors -gt 0) { Write-Output "  $errors error(s) during shutdown" }
 Write-Output "===================================================="
