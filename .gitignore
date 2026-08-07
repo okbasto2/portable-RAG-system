@@ -1,0 +1,25 @@
+# Binary applications & embedded environments (multi-GB)
+apps/
+
+# Data directories, database storage, and model weights (multi-GB)
+data/
+storage/
+snapshots/
+logs/
+
+# Runtime state markers and secrets
+.portable-fixed
+.qdrant-initialized
+.webui_secret_key
+*.tmp
+
+# Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# OS metadata
+Thumbs.db
+Desktop.ini
+.DS_Store
