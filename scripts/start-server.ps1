@@ -37,7 +37,7 @@ function Check-Dependency {
     }
     try {
         $test = Start-Process -FilePath $ExePath -ArgumentList "--version" -NoNewWindow -Wait -PassThru -RedirectStandardOutput "$env:TEMP\depcheck.tmp" -RedirectStandardError "$env:TEMP\depcheck.tmp" -ErrorAction SilentlyContinue
-        if ($test.ExitCode -eq -1073741515) {
+        if ($null -ne $test -and $test.ExitCode -eq -1073741515) {
             Write-Output "[PREFLIGHT] ERROR: $Name is missing a required DLL (error 0xC0000135)"
             Write-Output "            This means Visual C++ Redistributable is not installed."
             Write-Output "            Fix: install VC++ Redist from https://aka.ms/vs/17/release/vc_redist.x64.exe"
@@ -45,7 +45,7 @@ function Check-Dependency {
             return $false
         }
     } catch {
-        Write-Output "  [WARN] $Name — could not test (may still work)"
+        Write-Output "  [WARN] $Name - could not test (may still work)"
         return $true
     }
     Write-Output "  [OK] $Name"
@@ -94,13 +94,14 @@ function Start-ServiceProcess {
         [string]$WorkingDirectory = $ROOT
     )
     Write-Output "Starting $Name..."
+    $errLog = "$LogFile.err.log"
     $p = Start-Process -FilePath $ExePath `
                        -ArgumentList $ArgumentList `
                        -WorkingDirectory $WorkingDirectory `
                        -NoNewWindow `
                        -PassThru `
                        -RedirectStandardOutput $LogFile `
-                       -RedirectStandardError $LogFile
+                       -RedirectStandardError $errLog
     
     Add-Content -Path $PID_FILE -Value "$Name=$($p.Id)"
     Write-Output "  [OK] $Name PID: $($p.Id)"
