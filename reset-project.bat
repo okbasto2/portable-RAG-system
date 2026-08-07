@@ -20,7 +20,7 @@ echo   - Logs and caches
 echo.
 echo The following will be KEPT:
 echo   - Config settings (RAG, model endpoints, etc.)
-echo   - Ollama model weights (~9.6 GB)
+echo   - Ollama model weights
 echo   - Application code
 echo.
 choice /C YN /M "Are you sure you want to proceed"
