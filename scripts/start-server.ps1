@@ -214,6 +214,7 @@ $procs['OpenWebUI'] = Launch-Service -Name "OpenWebUI" `
         RAG_EMBEDDING_MODEL = "embeddinggemma"
         VECTOR_DB = "qdrant"
         QDRANT_URI = "http://127.0.0.1:6333"
+        ENABLE_VERSION_UPDATE_CHECK="false"
     } `
     -HealthCheck { (Test-NetConnection -ComputerName 127.0.0.1 -Port 8080 -WarningAction SilentlyContinue).TcpTestSucceeded }
 
