@@ -8,6 +8,7 @@ SET "ROOT_DIR=%~dp0"
 SET "PYTHON_EXE=%ROOT_DIR%apps\python_env\python.exe"
 SET "FIX_FLAG=%ROOT_DIR%.portable-fixed"
 SET "FIXER_SCRIPT=%ROOT_DIR%scripts\fix-portable.py"
+SET "HEAVY_DEPS_SCRIPT=%ROOT_DIR%scripts\install-heavy-deps.py"
 SET "START_SCRIPT=%ROOT_DIR%scripts\start-server.ps1"
 
 echo ===================================================
@@ -33,6 +34,11 @@ if not exist "%PYTHON_EXE%" (
     echo Run setup-portable.ps1 first: powershell -ExecutionPolicy Bypass -File scripts\setup-portable.ps1
     pause
     exit /b 1
+)
+
+:: Ensure heavy dependencies (like PyTorch) are installed if omitted from zip
+if exist "%HEAVY_DEPS_SCRIPT%" (
+    "%PYTHON_EXE%" "%HEAVY_DEPS_SCRIPT%"
 )
 
 echo Launching services via PowerShell...
