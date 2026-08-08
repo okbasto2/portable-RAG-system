@@ -67,7 +67,26 @@ if (Test-Path "$ROOT\requirements.txt") {
     Write-Host "[3/6] Installing Python dependencies (this may take a few minutes)..." -ForegroundColor Yellow
     if (-not (Test-Path $pipExe)) {
         $getPip = "$env:TEMP\get-pip.py"
-        Invoke-WebRequest -Uri "https://bootstrap.pypa.net/get-pip.py" -OutFile $getPip -UseBasicParsing
+        # Try GitHub mirror first (more reliable on restricted networks), fallback to official
+        $pipUrls = @(
+            "https://github.com/pypa/get-pip/raw/main/public/get-pip.py",
+            "https://bootstrap.pypa.net/get-pip.py"
+        )
+        $downloaded = $false
+        foreach ($url in $pipUrls) {
+            try {
+                Write-Host "  Downloading get-pip.py from $url ..." -ForegroundColor Gray
+                Invoke-WebRequest -Uri $url -OutFile $getPip -UseBasicParsing -TimeoutSec 15
+                $downloaded = $true
+                break
+            } catch {
+                Write-Host "  [WARN] Failed: $url" -ForegroundColor Yellow
+            }
+        }
+        if (-not $downloaded) {
+            Write-Host "  [ERROR] Could not download get-pip.py from any source." -ForegroundColor Red
+            exit 1
+        }
         & $pythonExe $getPip --no-warn-script-location
         Remove-Item $getPip -ErrorAction SilentlyContinue
     }
