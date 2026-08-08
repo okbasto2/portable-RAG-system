@@ -63,31 +63,20 @@ It combines state-of-the-art open-source AI services into a single folder that c
 
 ## ⚡ Quick Start
 
-### 🚀 Automated Setup (Recommended)
+### 📦 1-Click Portable Download
 
-1. **Clone the Repository**:
-   ```powershell
-   git clone https://github.com/okbasto2/portable-RAG-system.git
-   cd portable-RAG-system
-   ```
+1. **Download Release Assets**:
+   Download the latest release files (`portable-rag-system.zip.001` & `portable-rag-system.zip.002`) from [GitHub Releases](../../releases).
 
-2. **Run Automated Provisioning**:
-   Run the setup script in PowerShell. It will automatically create all folder structures, download Portable Python 3.11, Qdrant, and Ollama binaries, install all dependencies, and patch Python launcher shebangs:
-   ```powershell
-   powershell -ExecutionPolicy Bypass -File scripts/setup-portable.ps1
-   ```
+2. **Extract the Bundle**:
+   - Place both files in the same folder.
+   - Right-click `portable-rag-system.zip.001` -> **Extract Here** (using 7-Zip or WinRAR), or run in CMD:
+     ```cmd
+     copy /b portable-rag-system.zip.001 + portable-rag-system.zip.002 portable-rag-system.zip
+     ```
 
-3. **Launch the Stack**:
-   Double-click **`start-project.bat`** (or run `.\start-project.bat` in CMD/PowerShell).
-
----
-
-### 📦 Alternative: Pre-Packaged 1-Click Zip
-
-If you prefer to download a pre-built offline zip containing all binaries pre-installed:
-1. Download `enterprise-ai-stack-portable.zip` from [GitHub Releases](../../releases).
-2. Extract the folder anywhere (e.g. `C:\AI-Stack` or a USB Flash Drive).
-3. Double-click **`start-project.bat`**.
+3. **Launch the RAG System**:
+   Double-click **`start-project.bat`** (or run `.\start-project.bat` in CMD/PowerShell). All services will initialize automatically!
 
 ---
 
