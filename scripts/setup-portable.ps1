@@ -4,6 +4,8 @@
 #>
 
 $ErrorActionPreference = "Stop"
+# Force TLS 1.2 (Windows PowerShell 5.1 defaults to TLS 1.0 which modern servers reject)
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ROOT = Split-Path -Parent $SCRIPT_DIR
 Set-Location $ROOT
