@@ -17,6 +17,10 @@ CACHE = os.path.join(HERE, "data", "openwebui_data", "cache")
 LOGS = os.path.join(HERE, "logs")
 PID_FILE = os.path.join(HERE, ".server-pids.txt")
 
+SEMANTIC_CACHE_DIR = os.path.join(HERE, "data", "semantic_cache")
+SEMANTIC_CACHE_DB = os.path.join(SEMANTIC_CACHE_DIR, "cache.db")
+CACHE_SERVER_URL = "http://127.0.0.1:11436"
+
 
 def wipe_sqlite():
     """Delete all user data from SQLite, preserve config and DB structure."""
@@ -107,6 +111,33 @@ def wipe_folders():
             pass
 
 
+def wipe_semantic_cache():
+    """Clear cached AI responses; keep config.json (threshold/max_entries settings).
+
+    Tries the running cache server's HTTP clear endpoint first so its in-memory
+    index stays in sync, then removes the DB file so the next start is pristine.
+    """
+    try:
+        import urllib.request
+
+        req = urllib.request.Request(f"{CACHE_SERVER_URL}/v1/cache/clear", method="POST")
+        with urllib.request.urlopen(req, timeout=3) as resp:
+            data = json.loads(resp.read().decode())
+            print(f"[OK] Semantic cache cleared via running server ({data.get('cleared', 0)} entries)")
+    except Exception:
+        pass  # server not running — fall through to file removal
+
+    if os.path.isfile(SEMANTIC_CACHE_DB):
+        try:
+            os.remove(SEMANTIC_CACHE_DB)
+            print("[OK] Removed semantic cache DB (data\\semantic_cache\\cache.db)")
+        except Exception as e:
+            # Server holds the file open; the HTTP clear above already emptied it.
+            print(f"[WARN] Semantic cache DB in use, could not remove file: {e}")
+    else:
+        print("[SKIP] No semantic cache DB found")
+
+
 def main():
     print("===================================================")
     print("  Enterprise AI Stack — Resetting User Data")
@@ -116,6 +147,7 @@ def main():
 
     wipe_sqlite()
     wipe_folders()
+    wipe_semantic_cache()
 
     print("")
     print("Reset complete. The project is clean and ready for a new deployment.")

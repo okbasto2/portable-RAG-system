@@ -15,9 +15,10 @@ echo   - Chat conversations
 echo   - Uploaded documents
 echo   - Knowledge base entries
 echo   - Logs and caches
+echo   - Cached AI responses (semantic cache)
 echo.
 echo The following will be KEPT:
-echo   - Config settings (RAG, model endpoints, etc.)
+echo   - Config settings (RAG, model endpoints, semantic cache threshold, etc.)
 echo   - llama.cpp model weights
 echo   - Application code
 echo.

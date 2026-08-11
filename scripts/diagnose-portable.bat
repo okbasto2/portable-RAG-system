@@ -80,4 +80,57 @@ if exist "%ROOT_DIR%data\llama_models\embeddinggemma-300M-Q8_0.gguf" (
 )
 echo.
 
+:: ── 4. Semantic Cache ────────────────────────────────
+echo ===================================================
+echo   [4/5] Semantic Cache
+echo ===================================================
+
+if exist "%SCRIPT_DIR%semantic-cache-server.py" (
+    echo   [OK] scripts\semantic-cache-server.py
+) else (
+    echo   [MISS] scripts\semantic-cache-server.py
+)
+
+if exist "%ROOT_DIR%data\semantic_cache\cache.db" (
+    echo   [OK] data\semantic_cache\cache.db ^(cached responses^)
+) else (
+    echo   [INFO] data\semantic_cache\cache.db not created yet ^(auto-created on first start^)
+)
+
+if exist "%ROOT_DIR%data\semantic_cache\config.json" (
+    echo   [OK] data\semantic_cache\config.json
+) else (
+    echo   [INFO] data\semantic_cache\config.json missing ^(server writes defaults on first start^)
+)
+
+netstat -ano 2>nul | findstr /C:":11436" >nul
+if %errorlevel%==0 (
+    echo   [OK] Cache proxy RUNNING on port 11436
+) else (
+    echo   [INFO] Port 11436 not listening ^(semantic cache proxy stopped^)
+)
+echo.
+
+:: ── 5. CUDA Runtime DLLs ─────────────────────────────
+echo ===================================================
+echo   [5/5] CUDA Runtime DLLs ^(needed for GPU inference^)
+echo ===================================================
+
+if exist "%ROOT_DIR%apps\llamacpp\cuda\llama-server.exe" (
+    for %%D in (cudart64_12.dll cublas64_12.dll cublasLt64_12.dll) do (
+        if exist "%ROOT_DIR%apps\llamacpp\cuda\%%D" (
+            echo   [OK] apps\llamacpp\cuda\%%D
+        ) else (
+            echo   [MISS] apps\llamacpp\cuda\%%D
+        )
+    )
+    echo.
+    echo   NOTE: if any DLL above is MISSING, llama-server silently falls
+    echo         back to CPU ^(~8 tok/s instead of 25+^). Re-run
+    echo         scripts\setup-portable.ps1 to fetch the CUDA 12.4 runtime.
+) else (
+    echo   [INFO] CUDA build not installed ^(CPU-only mode^) - no runtime needed
+)
+echo.
+
 pause
