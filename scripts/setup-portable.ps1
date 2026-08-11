@@ -24,6 +24,7 @@ $dirs = @(
     "$ROOT\apps\llamacpp\cpu",
     "$ROOT\apps\llamacpp\cuda",
     "$ROOT\data\llama_models",
+    "$ROOT\data\semantic_cache",
     "$ROOT\data\qdrant_storage",
     "$ROOT\data\openwebui_data",
     "$ROOT\data\n8n_data",
@@ -142,6 +143,20 @@ if ($hasGpu -and -not (Test-Path "$ROOT\apps\llamacpp\cuda\llama-server.exe")) {
     Expand-Archive -Path $cudaZip -DestinationPath "$ROOT\apps\llamacpp\cuda" -Force
     Remove-Item $cudaZip -ErrorAction SilentlyContinue
     Write-Host "  [OK] llama.cpp CUDA build installed." -ForegroundColor Green
+}
+# The llama.cpp CUDA zip does NOT bundle the CUDA runtime (cudart/cublas).
+# Without these DLLs llama-server silently falls back to CPU (~8 tok/s).
+# Fetch them from the companion cudart release zip so GPU acceleration actually works.
+if ($hasGpu -and -not (Test-Path "$ROOT\apps\llamacpp\cuda\cudart64_12.dll")) {
+    Write-Host "  [i] Downloading CUDA 12.4 runtime (cudart + cublas) for GPU acceleration..." -ForegroundColor Yellow
+    $cudartZip = "$env:TEMP\llamacpp-cudart.zip"
+    $cudartUrl = "https://github.com/ggml-org/llama.cpp/releases/download/b10333/cudart-llama-bin-win-cuda-12.4-x64.zip"
+    Invoke-WebRequest -Uri $cudartUrl -OutFile $cudartZip -UseBasicParsing
+    Expand-Archive -Path $cudartZip -DestinationPath "$env:TEMP\llamacpp-cudart" -Force
+    Copy-Item "$env:TEMP\llamacpp-cudart\cudart64_12.dll", "$env:TEMP\llamacpp-cudart\cublas64_12.dll", "$env:TEMP\llamacpp-cudart\cublasLt64_12.dll" -Destination "$ROOT\apps\llamacpp\cuda\" -Force
+    Remove-Item $cudartZip -ErrorAction SilentlyContinue
+    Remove-Item "$env:TEMP\llamacpp-cudart" -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Host "  [OK] CUDA runtime installed (cudart64_12, cublas64_12, cublasLt64_12)." -ForegroundColor Green
 }
 
 # GGUF chat model (Qwen3.5-4B Q4_K_M, ~2.6 GB)

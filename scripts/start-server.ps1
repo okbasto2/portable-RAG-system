@@ -253,7 +253,13 @@ $procs['LlamaEmbed'] = Launch-Service -Name "LlamaEmbed" `
     ) `
     -HealthCheck { (Test-NetConnection -ComputerName 127.0.0.1 -Port 11435 -WarningAction SilentlyContinue).TcpTestSucceeded }
 
-# ── 4. Docling Serve ───────────────────────────────────────
+# ── 4. Semantic Cache Proxy (Open WebUI <-> llama.cpp) ───────
+$procs['SemanticCache'] = Launch-Service -Name "SemanticCache" `
+    -ExePath $PYTHON `
+    -Arguments @("$SCRIPT_DIR\semantic-cache-server.py") `
+    -HealthCheck { (Test-NetConnection -ComputerName 127.0.0.1 -Port 11436 -WarningAction SilentlyContinue).TcpTestSucceeded }
+
+# ── 5. Docling Serve ───────────────────────────────────────
 $procs['Docling'] = Launch-Service -Name "Docling" `
     -ExePath "$APPS\python_env\Scripts\docling-serve.exe" `
     -Arguments @('run', '--port', '5001') `
@@ -263,7 +269,7 @@ $procs['Docling'] = Launch-Service -Name "Docling" `
     } `
     -HealthCheck { (Test-NetConnection -ComputerName 127.0.0.1 -Port 5001 -WarningAction SilentlyContinue).TcpTestSucceeded }
 
-# ── 5. Open WebUI ──────────────────────────────────────────
+# ── 6. Open WebUI ──────────────────────────────────────────
 $procs['OpenWebUI'] = Launch-Service -Name "OpenWebUI" `
     -ExePath "$APPS\python_env\Scripts\open-webui.exe" `
     -Arguments @('serve') `
@@ -271,9 +277,10 @@ $procs['OpenWebUI'] = Launch-Service -Name "OpenWebUI" `
         DATA_DIR = "$DATA\openwebui_data"
         # llama.cpp exposes an OpenAI-compatible API; disable the dead Ollama tab
         ENABLE_OLLAMA_API = "false"
-        OPENAI_API_BASE_URL = "http://127.0.0.1:11434/v1"
+        # Chat goes through the semantic cache proxy (:11436) which forwards to llama-server
+        OPENAI_API_BASE_URL = "http://127.0.0.1:11436/v1"
         OPENAI_API_KEY = "llama.cpp"
-        # RAG embeddings via llama.cpp embedding server
+        # RAG embeddings via llama.cpp embedding server (direct, not cached)
         RAG_EMBEDDING_ENGINE = "openai"
         RAG_EMBEDDING_MODEL = "embeddinggemma"
         RAG_OPENAI_API_BASE_URL = "http://127.0.0.1:11435/v1"
@@ -292,6 +299,7 @@ Write-Output "===================================================="
 Write-Output "  Qdrant      : http://127.0.0.1:6333  (gRPC: 6334)"
 Write-Output "  llama.cpp   : http://127.0.0.1:11434/v1  (chat, OpenAI-compatible)"
 Write-Output "  llama.cpp   : http://127.0.0.1:11435/v1  (embeddings, OpenAI-compatible)"
+Write-Output "  SemanticCache: http://127.0.0.1:11436  (chat cache proxy; /v1/cache/stats)"
 Write-Output "  Docling     : http://127.0.0.1:5001/docs"
 Write-Output "  Open WebUI  : http://127.0.0.1:8080"
 Write-Output "  Logs        : $LOGS"

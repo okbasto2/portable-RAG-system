@@ -17,7 +17,7 @@ if (-not (Test-Path $PID_FILE)) {
     Write-Output "Falling back to image-name matching..."
     Write-Output ""
     
-    $fallbackTitles = @("Qdrant", "llama-server", "Docling", "OpenWebUI", "Open WebUI")
+    $fallbackTitles = @("Qdrant", "llama-server", "semantic-cache-server", "Docling", "OpenWebUI", "Open WebUI")
     foreach ($title in $fallbackTitles) {
         $procs = Get-Process | Where-Object { $_.MainWindowTitle -like "*$title*" }
         foreach ($p in $procs) {
@@ -44,7 +44,7 @@ if ($entries.Count -eq 0) {
     exit 0
 }
 
-$stopOrder = @("OpenWebUI", "Docling", "LlamaEmbed", "LlamaChat", "Qdrant")
+$stopOrder = @("OpenWebUI", "Docling", "SemanticCache", "LlamaEmbed", "LlamaChat", "Qdrant")
 
 foreach ($name in $stopOrder) {
     $entry = $entries | Where-Object { $_.Name -eq $name }

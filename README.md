@@ -38,7 +38,13 @@ It combines state-of-the-art open-source AI services into a single folder that c
                                   │      Open WebUI        │
                                   │  http://127.0.0.1:8080 │
                                   └───────────┬────────────┘
-                                              │
+                                              │  chat /v1
+                                              ▼
+                              ┌────────────────────────────┐
+                              │   Semantic Cache Proxy     │
+                              │  http://127.0.0.1:11436    │
+                              └─────────────┬──────────────┘
+                                            │  cache miss → forward
             ┌─────────────────┬───────────────┼───────────────┬─────────────────┐
             │                 │               │               │                 │
             ▼                 ▼               ▼               ▼                 ▼
@@ -56,6 +62,7 @@ It combines state-of-the-art open-source AI services into a single folder that c
 |---|---|---|---|
 | **Frontend** | Open WebUI | `http://127.0.0.1:8080` | Feature-rich AI chat interface & RAG management dashboard |
 | **Vector DB** | Qdrant | `http://127.0.0.1:6333` | High-performance vector database storing document embeddings |
+| **Semantic Cache** | Cache Proxy | `http://127.0.0.1:11436` | SQLite-backed semantic response cache between Open WebUI and llama.cpp (see below) |
 | **Inference** | llama.cpp (chat) | `http://127.0.0.1:11434/v1` | OpenAI-compatible LLM server (Qwen3.5-4B GGUF) with automatic GPU/CPU detection |
 | **Embeddings** | llama.cpp (embeddings) | `http://127.0.0.1:11435/v1` | OpenAI-compatible embedding server (embeddinggemma-300M GGUF) |
 | **Document Processing** | Docling Serve | `http://127.0.0.1:5001/docs` | Enterprise document parser converting PDF/DOCX to structured Markdown |
@@ -102,6 +109,8 @@ The project keeps a clean root folder (`start-project.bat` & `stop-project.bat`)
     ├── stop-server.ps1         # Multi-service graceful stopper
     ├── watchdog.ps1            # Active health monitoring & crash auto-recovery service
     ├── fix-portable.py         # Relocates distlib launcher shebangs (#!<launcher_dir>\..\python.exe)
+    ├── semantic-cache-server.py# SQLite-backed semantic response cache proxy (:11436)
+    ├── clear-semantic-cache.py # Wipe all cached responses (keeps config)
     ├── reset-data.py           # Data reset engine
     ├── diagnose-portable.bat   # System diagnostic tool
     ├── fix-portable.bat        # Manual shebang repair trigger
@@ -116,6 +125,54 @@ To enable automatic crash recovery for long-running deployments, start the watch
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/watchdog.ps1
 ```
+
+---
+
+## 🧠 Semantic Caching
+
+A **semantic response cache** sits between Open WebUI and the chat model. Instead of re-generating an answer every time, the cache embeds each question and replays the stored response when a semantically similar prompt has been answered before — dramatically cutting latency for repeated or paraphrased questions.
+
+### How it works
+
+```
+Open WebUI ──> :11436 cache proxy ──> llama.cpp chat (:11434)
+                    │
+                    ├─ embeds the question via embeddinggemma (:11435)
+                    ├─ cosine similarity vs. cached prompts (SQLite, on disk)
+                    ├─ ≥ threshold?  ──> replay stored response instantly
+                    └─ below threshold → forward to llama.cpp, stream live, then store
+```
+
+- **Storage is SQLite on disk** (`data/semantic_cache/cache.db`) — not RAM. Only a ~3 MB in-memory index holds prompt embeddings for fast lookup. The cache survives restarts.
+- **Streaming preserved**: cache misses stream tokens to the UI in real time (tee) while being buffered for storage — no added latency.
+- **RAG-aware**: Open WebUI injects retrieved knowledge-base chunks into the prompt. The proxy strips the RAG wrapper to key on the *pure question*, and fingerprints the `<context>` block — so a cached answer is only replayed when the **same question hits the same knowledge base**. Different KB content always regenerates (never a stale cross-KB answer).
+- **LRU eviction**: when the cache reaches `max_entries`, the least-recently-used responses are evicted.
+- **Fail-open**: if the embedding server is unreachable, requests pass straight through uncached.
+
+### Configuration (`data/semantic_cache/config.json`)
+
+Hot-reloaded on every request — **no restart needed**:
+
+```json
+{
+  "threshold": 0.92,
+  "max_entries": 1000
+}
+```
+
+| Key | Default | Meaning |
+|---|---|---|
+| `threshold` | `0.92` | Minimum cosine similarity (0–1) for a cache hit. Higher = stricter (fewer hits, safer). Typical range **0.90–0.95**; `0.98` ≈ only near-identical prompts hit. |
+| `max_entries` | `1000` | Maximum number of cached responses (LRU eviction when exceeded). |
+
+### Usage
+
+- **Watch cache stats** (entries, hits, misses, threshold): `http://127.0.0.1:11436/v1/cache/stats`
+- **Clear the cache** (keeps `config.json`):
+  ```powershell
+  apps\python_env\python.exe scripts\clear-semantic-cache.py
+  ```
+  The script calls the running server's `/v1/cache/clear` endpoint so the in-memory index stays in sync; if the server is down it wipes the database file directly.
 
 ---
 

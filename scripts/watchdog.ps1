@@ -64,6 +64,13 @@ $services = @{
         WorkDir   = "$APPS\llamacpp"
         Env       = @{}
     }
+    "SemanticCache" = @{
+        Exe       = "$APPS\python_env\python.exe"
+        Args      = @("$ROOT\scripts\semantic-cache-server.py")
+        Port      = 11436
+        WorkDir   = "$ROOT"
+        Env       = @{}
+    }
     "Docling" = @{
         Exe       = "$APPS\python_env\Scripts\docling-serve.exe"
         Args      = @('run', '--port', '5001')
@@ -79,7 +86,7 @@ $services = @{
         Env       = @{
             DATA_DIR         = "$DATA\openwebui_data"
             ENABLE_OLLAMA_API = "false"
-            OPENAI_API_BASE_URL = "http://127.0.0.1:11434/v1"
+            OPENAI_API_BASE_URL = "http://127.0.0.1:11436/v1"
             OPENAI_API_KEY   = "llama.cpp"
             RAG_EMBEDDING_ENGINE = "openai"
             RAG_EMBEDDING_MODEL = "embeddinggemma"
