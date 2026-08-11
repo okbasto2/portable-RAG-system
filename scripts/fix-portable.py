@@ -80,6 +80,56 @@ def patch_py(path):
     return ("patched", original.decode("latin1", "replace"), interpreter.decode("latin1", "replace"))
 
 
+# ── Open WebUI "Think" toggle bridge for llama.cpp ─────────────────────
+# Open WebUI's chat UI sends the Ollama-style "think" param for reasoning
+# models, but llama.cpp's OpenAI-compatible API only honors
+# chat_template_kwargs.enable_thinking. This patch translates the toggle
+# so the UI's Think On/Off switch actually controls reasoning.
+THINK_MARKER_START = b"# === hermes-llamacpp-think-toggle ==="
+THINK_MARKER_END = b"# === end hermes-llamacpp-think-toggle ==="
+THINK_PATCH = b"""    # === hermes-llamacpp-think-toggle ===
+    # Translate Open WebUI's "think" toggle (Ollama-style param) into
+    # llama.cpp's chat_template_kwargs.enable_thinking so the UI toggle
+    # actually controls reasoning on OpenAI-compatible backends.
+    # Values: null (default) -> not set (server default applies),
+    #         true  -> enable_thinking=true  (thinking ON),
+    #         false -> enable_thinking=false (thinking OFF).
+    _req_params = payload.get("params")
+    if isinstance(_req_params, dict) and _req_params.get("think") is not None:
+        _ctk = payload.get("chat_template_kwargs") or {}
+        _ctk["enable_thinking"] = bool(_req_params["think"])
+        payload["chat_template_kwargs"] = _ctk
+        _req_params.pop("think", None)
+    # === end hermes-llamacpp-think-toggle ===
+
+"""
+
+
+def patch_openai_think_toggle():
+    target = os.path.join(
+        HERE, "apps", "python_env", "Lib", "site-packages", "open_webui", "routers", "openai.py"
+    )
+    if not os.path.exists(target):
+        return ("skip", "openai.py not found (open-webui not installed yet)")
+
+    with open(target, "rb") as fh:
+        data = fh.read()
+
+    if THINK_MARKER_START in data:
+        return ("skip", "think toggle bridge already applied")
+
+    anchor = b"    payload = {**form_data}\n    metadata = payload.pop(\"metadata\", None)\n"
+    if anchor not in data:
+        return ("error", "anchor line not found in openai.py - manual patch needed")
+
+    new_data = data.replace(anchor, anchor + THINK_PATCH, 1)
+
+    with open(target, "wb") as fh:
+        fh.write(new_data)
+
+    return ("patched", "think toggle bridge inserted into openai.py")
+
+
 def main():
     print(f"Project root : {HERE}")
     print(f"Scripts dir  : {SCRIPTS}")
@@ -112,6 +162,15 @@ def main():
                 print(f"  [PATCHED PY]  {name}")
             else:
                 skipped += 1
+
+    # Open WebUI think-toggle bridge (llama.cpp OpenAI-compatible API)
+    status, detail = patch_openai_think_toggle()
+    if status == "patched":
+        patched += 1
+        print(f"  [PATCHED OPENAI] {detail}")
+    else:
+        skipped += 1
+        print(f"  [SKIP OPENAI] {detail}")
 
     print("")
     print(f"Done. Patched {patched} launcher(s); {skipped} already relocatable or unmodified.")

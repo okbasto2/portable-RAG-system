@@ -55,10 +55,28 @@ if exist "%ROOT_DIR%apps\qdrant\qdrant.exe" (
     echo   [MISS] apps\qdrant\qdrant.exe
 )
 
-if exist "%ROOT_DIR%apps\ollama\ollama.exe" (
-    echo   [OK] apps\ollama\ollama.exe
+if exist "%ROOT_DIR%apps\llamacpp\cpu\llama-server.exe" (
+    echo   [OK] apps\llamacpp\cpu\llama-server.exe
 ) else (
-    echo   [MISS] apps\ollama\ollama.exe
+    echo   [MISS] apps\llamacpp\cpu\llama-server.exe
+)
+
+if exist "%ROOT_DIR%apps\llamacpp\cuda\llama-server.exe" (
+    echo   [OK] apps\llamacpp\cuda\llama-server.exe ^(CUDA build^)
+) else (
+    echo   [INFO] apps\llamacpp\cuda\llama-server.exe not present ^(CPU-only mode^)
+)
+
+if exist "%ROOT_DIR%data\llama_models\Qwen3.5-4B-Q4_K_M.gguf" (
+    echo   [OK] data\llama_models\Qwen3.5-4B-Q4_K_M.gguf
+) else (
+    echo   [MISS] data\llama_models\Qwen3.5-4B-Q4_K_M.gguf ^(chat model^)
+)
+
+if exist "%ROOT_DIR%data\llama_models\embeddinggemma-300M-Q8_0.gguf" (
+    echo   [OK] data\llama_models\embeddinggemma-300M-Q8_0.gguf
+) else (
+    echo   [MISS] data\llama_models\embeddinggemma-300M-Q8_0.gguf ^(embedding model^)
 )
 echo.
 

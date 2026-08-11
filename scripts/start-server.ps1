@@ -3,7 +3,7 @@
   Enterprise AI Stack -- Server Launcher (PowerShell)
   
   Starts all services with:
-    * GPU/CPU auto-detection
+    * GPU/CPU auto-detection (llama.cpp picks CUDA build + full offload when GPU present)
     * PID tracking for clean shutdown
     * Startup health checks (wait for each port)
     * Crash recovery via watchdog companion
@@ -25,6 +25,12 @@ $APPS  = "$ROOT\apps"
 $DATA  = "$ROOT\data"
 $LOGS  = "$ROOT\logs"
 $PYTHON = "$APPS\python_env\python.exe"
+
+# ── llama.cpp layout ──────────────────────────────────
+$LLAMA_CPU = "$APPS\llamacpp\cpu"
+$LLAMA_CUDA = "$APPS\llamacpp\cuda"
+$MODEL_CHAT = "$DATA\llama_models\Qwen3.5-4B-Q4_K_M.gguf"
+$MODEL_EMBED = "$DATA\llama_models\embeddinggemma-300M-Q8_0.gguf"
 
 # Ensure log directory exists
 New-Item -ItemType Directory -Force -Path $LOGS | Out-Null
@@ -65,9 +71,27 @@ function Check-Dependency {
 
 Write-Output "Checking dependencies..."
 $qdrantOk = Check-Dependency -Name "qdrant.exe" -ExePath "$APPS\qdrant\qdrant.exe"
-$ollamaOk = Check-Dependency -Name "ollama.exe" -ExePath "$APPS\ollama\ollama.exe"
 $pythonOk = Check-Dependency -Name "python.exe" -ExePath $PYTHON
-if (-not $pythonOk -or -not $qdrantOk) {
+
+# Detect which llama.cpp build to use
+$llamaDir = $null
+if (Test-Path "$LLAMA_CUDA\llama-server.exe") { $llamaDir = $LLAMA_CUDA }
+elseif (Test-Path "$LLAMA_CPU\llama-server.exe") { $llamaDir = $LLAMA_CPU }
+if ($llamaDir) {
+    $llamaOk = Check-Dependency -Name "llama-server.exe" -ExePath "$llamaDir\llama-server.exe"
+} else {
+    $llamaOk = $false
+    Write-Output "[PREFLIGHT] WARNING: llama-server.exe not found in apps\llamacpp\cpu or apps\llamacpp\cuda"
+}
+
+foreach ($m in @($MODEL_CHAT, $MODEL_EMBED)) {
+    if (-not (Test-Path $m)) {
+        Write-Output "[PREFLIGHT] WARNING: model not found: $m"
+        Write-Output "            Run scripts\setup-portable.ps1 to download the GGUF models."
+    }
+}
+
+if (-not $pythonOk -or -not $qdrantOk -or -not $llamaOk) {
     Write-Output "[PREFLIGHT] One or more dependencies are missing. Startup may fail."
 }
 if (-not (Test-Path "$APPS\python_env\Scripts\docling-serve.exe") -or
@@ -83,15 +107,29 @@ try {
     if ($LASTEXITCODE -eq 0) { $HasGPU = $true }
 } catch { }
 Write-Output "GPU detected: $HasGPU"
-if (-not $HasGPU) {
+if ($HasGPU -and $llamaDir -eq $LLAMA_CUDA) {
+    Write-Output "  > Using CUDA build of llama.cpp with full GPU offload (-ngl 99)."
+} elseif ($HasGPU) {
+    Write-Output "  > GPU present but only the CPU build is installed."
+    Write-Output "  > Run scripts\setup-portable.ps1 to install the CUDA build for acceleration."
+} else {
     Write-Output "  > Running in CPU-ONLY mode. LLM inference will be slower."
     Write-Output "  > This is expected: this server has no NVIDIA GPU."
 }
 Write-Output ""
 
+# Determine llama-server binary + offload flags
+if ($HasGPU -and (Test-Path "$LLAMA_CUDA\llama-server.exe")) {
+    $LLAMA_SERVER = "$LLAMA_CUDA\llama-server.exe"
+    $NGL = "99"          # offload all layers to GPU
+} else {
+    $LLAMA_SERVER = "$LLAMA_CPU\llama-server.exe"
+    $NGL = "0"           # pure CPU
+}
+Write-Output "llama-server : $LLAMA_SERVER"
+Write-Output ""
+
 # ── Shared Env ─────────────────────────────────────────────
-$env:OLLAMA_MODELS = "$DATA\ollama_models"
-# Fix Unicode output for Python services (Open WebUI splash screen)
 $env:PYTHONIOENCODING = "utf-8"
 
 # ── PID tracking ───────────────────────────────────────────
@@ -137,7 +175,7 @@ function Launch-Service {
         if ($HealthCheck -and -not $NoHealthCheck) {
             Write-Output "  [$Name] Waiting for readiness..."
             $ready = $false
-            for ($i = 0; $i -lt 30; $i++) {
+            for ($i = 0; $i -lt 60; $i++) {
                 Start-Sleep -Seconds 1
                 # Show progress dot every 3 seconds so user knows it's not frozen
                 if ($i -gt 0 -and $i % 3 -eq 0) {
@@ -162,7 +200,7 @@ function Launch-Service {
                 Write-Output "  [$Name] READY"
             } elseif ($stillAlive) {
                 Write-Host ""  # end the dot line
-                Write-Output "  [$Name] WARNING: process is running but not responding on port (waited 30s)"
+                Write-Output "  [$Name] WARNING: process is running but not responding on port (waited 60s)"
             }
         }
         
@@ -184,16 +222,38 @@ $procs['Qdrant'] = Launch-Service -Name "Qdrant" `
     -Arguments @('--uri', 'http://127.0.0.1:6333') `
     -HealthCheck { (Test-NetConnection -ComputerName 127.0.0.1 -Port 6333 -WarningAction SilentlyContinue).TcpTestSucceeded }
 
-# ── 2. Ollama ───────────────────────────────────────────────
-if (-not (Test-Path $env:OLLAMA_MODELS)) {
-    New-Item -ItemType Directory -Force -Path $env:OLLAMA_MODELS | Out-Null
-}
-$procs['Ollama'] = Launch-Service -Name "Ollama" `
-    -ExePath "$APPS\ollama\ollama.exe" `
-    -Arguments @('serve') `
+# ── 2. llama.cpp -- Chat (OpenAI-compatible API) ───────────
+$procs['LlamaChat'] = Launch-Service -Name "LlamaChat" `
+    -ExePath $LLAMA_SERVER `
+    -Arguments @(
+        '-m', $MODEL_CHAT,
+        '--host', '127.0.0.1',
+        '--port', '11434',
+        '--alias', 'qwen3.5:4b',
+        '-c', '8192',
+        '-ngl', $NGL,
+        '--reasoning', 'off',      # default: no thinking (Open WebUI toggle can re-enable per-request)
+        '--no-webui'
+    ) `
     -HealthCheck { (Test-NetConnection -ComputerName 127.0.0.1 -Port 11434 -WarningAction SilentlyContinue).TcpTestSucceeded }
 
-# ── 3. Docling Serve ───────────────────────────────────────
+# ── 3. llama.cpp -- Embeddings (OpenAI-compatible API) ─────
+$procs['LlamaEmbed'] = Launch-Service -Name "LlamaEmbed" `
+    -ExePath $LLAMA_SERVER `
+    -Arguments @(
+        '-m', $MODEL_EMBED,
+        '--host', '127.0.0.1',
+        '--port', '11435',
+        '--alias', 'embeddinggemma',
+        '--embeddings',
+        '--pooling', 'mean',
+        '-c', '2048',
+        '-ngl', $NGL,
+        '--no-webui'
+    ) `
+    -HealthCheck { (Test-NetConnection -ComputerName 127.0.0.1 -Port 11435 -WarningAction SilentlyContinue).TcpTestSucceeded }
+
+# ── 4. Docling Serve ───────────────────────────────────────
 $procs['Docling'] = Launch-Service -Name "Docling" `
     -ExePath "$APPS\python_env\Scripts\docling-serve.exe" `
     -Arguments @('run', '--port', '5001') `
@@ -203,15 +263,21 @@ $procs['Docling'] = Launch-Service -Name "Docling" `
     } `
     -HealthCheck { (Test-NetConnection -ComputerName 127.0.0.1 -Port 5001 -WarningAction SilentlyContinue).TcpTestSucceeded }
 
-# ── 4. Open WebUI ──────────────────────────────────────────
+# ── 5. Open WebUI ──────────────────────────────────────────
 $procs['OpenWebUI'] = Launch-Service -Name "OpenWebUI" `
     -ExePath "$APPS\python_env\Scripts\open-webui.exe" `
     -Arguments @('serve') `
     -ExtraEnv @{
         DATA_DIR = "$DATA\openwebui_data"
-        OLLAMA_BASE_URL = "http://127.0.0.1:11434"
-        RAG_EMBEDDING_ENGINE = "ollama"
+        # llama.cpp exposes an OpenAI-compatible API; disable the dead Ollama tab
+        ENABLE_OLLAMA_API = "false"
+        OPENAI_API_BASE_URL = "http://127.0.0.1:11434/v1"
+        OPENAI_API_KEY = "llama.cpp"
+        # RAG embeddings via llama.cpp embedding server
+        RAG_EMBEDDING_ENGINE = "openai"
         RAG_EMBEDDING_MODEL = "embeddinggemma"
+        RAG_OPENAI_API_BASE_URL = "http://127.0.0.1:11435/v1"
+        RAG_OPENAI_API_KEY = "llama.cpp"
         VECTOR_DB = "qdrant"
         QDRANT_URI = "http://127.0.0.1:6333"
         ENABLE_VERSION_UPDATE_CHECK="false"
@@ -223,17 +289,18 @@ Write-Output ""
 Write-Output "===================================================="
 Write-Output "  Server Stack Running"
 Write-Output "===================================================="
-Write-Output "  Qdrant    : http://127.0.0.1:6333  (gRPC: 6334)"
-Write-Output "  Ollama    : http://127.0.0.1:11434"
-Write-Output "  Docling   : http://127.0.0.1:5001/docs"
-Write-Output "  Open WebUI: http://127.0.0.1:8080"
-Write-Output "  Logs      : $LOGS"
-Write-Output "  PIDs      : $PID_FILE"
+Write-Output "  Qdrant      : http://127.0.0.1:6333  (gRPC: 6334)"
+Write-Output "  llama.cpp   : http://127.0.0.1:11434/v1  (chat, OpenAI-compatible)"
+Write-Output "  llama.cpp   : http://127.0.0.1:11435/v1  (embeddings, OpenAI-compatible)"
+Write-Output "  Docling     : http://127.0.0.1:5001/docs"
+Write-Output "  Open WebUI  : http://127.0.0.1:8080"
+Write-Output "  Logs        : $LOGS"
+Write-Output "  PIDs        : $PID_FILE"
 Write-Output ""
 Write-Output "  To stop:   powershell -File scripts\stop-server.ps1"
 Write-Output "  Watchdog:  powershell -File scripts\watchdog.ps1"
 Write-Output ""
-$gpuText = if($HasGPU){'NVIDIA GPU available'}else{'CPU-only mode (slower)'}
+$gpuText = if($HasGPU -and $LLAMA_SERVER -eq "$LLAMA_CUDA\llama-server.exe"){'NVIDIA GPU (CUDA offload)'}elseif($HasGPU){'NVIDIA GPU (CPU build installed)'}else{'CPU-only mode (slower)'}
 Write-Output "  GPU       : $gpuText"
 Write-Output "===================================================="
 

@@ -27,6 +27,21 @@ function Write-Log($msg) {
 $APPS  = "$ROOT\apps"
 $DATA  = "$ROOT\data"
 
+# ── GPU-aware llama.cpp build selection (mirrors start-server.ps1) ──
+$HasGPU = $false
+try {
+    $nvidia = & nvidia-smi 2>$null
+    if ($LASTEXITCODE -eq 0) { $HasGPU = $true }
+} catch { }
+
+if ($HasGPU -and (Test-Path "$APPS\llamacpp\cuda\llama-server.exe")) {
+    $LLAMA_SERVER = "$APPS\llamacpp\cuda\llama-server.exe"
+    $NGL = "99"
+} else {
+    $LLAMA_SERVER = "$APPS\llamacpp\cpu\llama-server.exe"
+    $NGL = "0"
+}
+
 $services = @{
     "Qdrant" = @{
         Exe       = "$APPS\qdrant\qdrant.exe"
@@ -35,12 +50,19 @@ $services = @{
         WorkDir   = "$APPS\qdrant"
         Env       = @{}
     }
-    "Ollama" = @{
-        Exe       = "$APPS\ollama\ollama.exe"
-        Args      = @('serve')
+    "LlamaChat" = @{
+        Exe       = $LLAMA_SERVER
+        Args      = @('-m', "$DATA\llama_models\Qwen3.5-4B-Q4_K_M.gguf", '--host', '127.0.0.1', '--port', '11434', '--alias', 'qwen3.5:4b', '-c', '8192', '-ngl', $NGL, '--reasoning', 'off', '--no-webui')
         Port      = 11434
-        WorkDir   = "$APPS\ollama"
-        Env       = @{ OLLAMA_MODELS = "$DATA\ollama_models" }
+        WorkDir   = "$APPS\llamacpp"
+        Env       = @{}
+    }
+    "LlamaEmbed" = @{
+        Exe       = $LLAMA_SERVER
+        Args      = @('-m', "$DATA\llama_models\embeddinggemma-300M-Q8_0.gguf", '--host', '127.0.0.1', '--port', '11435', '--alias', 'embeddinggemma', '--embeddings', '--pooling', 'mean', '-c', '2048', '-ngl', $NGL, '--no-webui')
+        Port      = 11435
+        WorkDir   = "$APPS\llamacpp"
+        Env       = @{}
     }
     "Docling" = @{
         Exe       = "$APPS\python_env\Scripts\docling-serve.exe"
@@ -56,7 +78,13 @@ $services = @{
         WorkDir   = "$ROOT"
         Env       = @{
             DATA_DIR         = "$DATA\openwebui_data"
-            OLLAMA_BASE_URL  = "http://127.0.0.1:11434"
+            ENABLE_OLLAMA_API = "false"
+            OPENAI_API_BASE_URL = "http://127.0.0.1:11434/v1"
+            OPENAI_API_KEY   = "llama.cpp"
+            RAG_EMBEDDING_ENGINE = "openai"
+            RAG_EMBEDDING_MODEL = "embeddinggemma"
+            RAG_OPENAI_API_BASE_URL = "http://127.0.0.1:11435/v1"
+            RAG_OPENAI_API_KEY = "llama.cpp"
             QDRANT_URI       = "http://127.0.0.1:6333"
             DOCLING_SERVE_URL= "http://127.0.0.1:5001"
             WEBUI_AUTH       = "true"
@@ -81,7 +109,7 @@ function Test-ServiceHealth($port) {
     }
 }
 
-Write-Log "Watchdog started (Check interval: ${CheckInterval}s)"
+Write-Log "Watchdog started (Check interval: ${CheckInterval}s, llama.cpp build: $(Split-Path -Parent $LLAMA_SERVER))"
 
 do {
     foreach ($svcName in $services.Keys) {

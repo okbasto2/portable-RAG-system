@@ -21,8 +21,9 @@ Write-Host "[1/6] Creating project folder structure..." -ForegroundColor Yellow
 $dirs = @(
     "$ROOT\apps\python_env",
     "$ROOT\apps\qdrant",
-    "$ROOT\apps\ollama",
-    "$ROOT\data\ollama_models",
+    "$ROOT\apps\llamacpp\cpu",
+    "$ROOT\apps\llamacpp\cuda",
+    "$ROOT\data\llama_models",
     "$ROOT\data\qdrant_storage",
     "$ROOT\data\openwebui_data",
     "$ROOT\data\n8n_data",
@@ -111,19 +112,56 @@ if (-not (Test-Path $qdrantExe)) {
     Write-Host "[4/6] Qdrant already present." -ForegroundColor Green
 }
 
-# ── 5. Download Ollama LLM Engine ──────────────────────────
-$ollamaExe = "$ROOT\apps\ollama\ollama.exe"
-if (-not (Test-Path $ollamaExe)) {
-    Write-Host "[5/6] Downloading Ollama LLM Engine..." -ForegroundColor Yellow
-    $ollamaSetup = "$env:TEMP\OllamaSetup.exe"
-    $ollamaUrl = "https://ollama.com/download/OllamaSetup.exe"
-    
-    Invoke-WebRequest -Uri $ollamaUrl -OutFile $ollamaSetup -UseBasicParsing
-    Start-Process -FilePath $ollamaSetup -ArgumentList "/DIR=`"$ROOT\apps\ollama`" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART" -Wait
-    Remove-Item $ollamaSetup -ErrorAction SilentlyContinue
-    Write-Host "  [OK] Ollama installed." -ForegroundColor Green
+# ── 5. Download llama.cpp LLM Engine + GGUF Models ─────────
+$llamaServer = "$ROOT\apps\llamacpp\cpu\llama-server.exe"
+if (-not (Test-Path $llamaServer)) {
+    Write-Host "[5/6] Downloading llama.cpp (CPU build)..."
+    $llamaZip = "$env:TEMP\llamacpp-cpu.zip"
+    $llamaUrl = "https://github.com/ggml-org/llama.cpp/releases/download/b10333/llama-b10333-bin-win-cpu-x64.zip"
+
+    Invoke-WebRequest -Uri $llamaUrl -OutFile $llamaZip -UseBasicParsing
+    Expand-Archive -Path $llamaZip -DestinationPath "$ROOT\apps\llamacpp\cpu" -Force
+    Remove-Item $llamaZip -ErrorAction SilentlyContinue
+    Write-Host "  [OK] llama.cpp CPU build installed." -ForegroundColor Green
 } else {
-    Write-Host "[5/6] Ollama already present." -ForegroundColor Green
+    Write-Host "[5/6] llama.cpp CPU build already present." -ForegroundColor Green
+}
+
+# Optional CUDA build — only when an NVIDIA GPU is detected
+$hasGpu = $false
+try {
+    $null = & nvidia-smi 2>$null
+    if ($LASTEXITCODE -eq 0) { $hasGpu = $true }
+} catch { }
+if ($hasGpu -and -not (Test-Path "$ROOT\apps\llamacpp\cuda\llama-server.exe")) {
+    Write-Host "  [i] NVIDIA GPU detected - downloading CUDA build for acceleration..." -ForegroundColor Yellow
+    $cudaZip = "$env:TEMP\llamacpp-cuda.zip"
+    $cudaUrl = "https://github.com/ggml-org/llama.cpp/releases/download/b10333/llama-b10333-bin-win-cuda-12.4-x64.zip"
+
+    Invoke-WebRequest -Uri $cudaUrl -OutFile $cudaZip -UseBasicParsing
+    Expand-Archive -Path $cudaZip -DestinationPath "$ROOT\apps\llamacpp\cuda" -Force
+    Remove-Item $cudaZip -ErrorAction SilentlyContinue
+    Write-Host "  [OK] llama.cpp CUDA build installed." -ForegroundColor Green
+}
+
+# GGUF chat model (Qwen3.5-4B Q4_K_M, ~2.6 GB)
+$chatModel = "$ROOT\data\llama_models\Qwen3.5-4B-Q4_K_M.gguf"
+if (-not (Test-Path $chatModel)) {
+    Write-Host "  [i] Downloading chat model Qwen3.5-4B-Q4_K_M.gguf (~2.6 GB)..."
+    Invoke-WebRequest -Uri "https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf" -OutFile $chatModel -UseBasicParsing
+    Write-Host "  [OK] Chat model downloaded." -ForegroundColor Green
+} else {
+    Write-Host "  [i] Chat model already present." -ForegroundColor Green
+}
+
+# GGUF embedding model (embeddinggemma-300M Q8_0, ~318 MB)
+$embedModel = "$ROOT\data\llama_models\embeddinggemma-300M-Q8_0.gguf"
+if (-not (Test-Path $embedModel)) {
+    Write-Host "  [i] Downloading embedding model embeddinggemma-300M-Q8_0.gguf (~318 MB)..."
+    Invoke-WebRequest -Uri "https://huggingface.co/ggml-org/embeddinggemma-300M-GGUF/resolve/main/embeddinggemma-300M-Q8_0.gguf" -OutFile $embedModel -UseBasicParsing
+    Write-Host "  [OK] Embedding model downloaded." -ForegroundColor Green
+} else {
+    Write-Host "  [i] Embedding model already present." -ForegroundColor Green
 }
 
 # ── 6. Fix Relocatable Shebangs ────────────────────────────

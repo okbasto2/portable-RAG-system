@@ -18,7 +18,7 @@ echo   - Logs and caches
 echo.
 echo The following will be KEPT:
 echo   - Config settings (RAG, model endpoints, etc.)
-echo   - Ollama model weights
+echo   - llama.cpp model weights
 echo   - Application code
 echo.
 choice /C YN /M "Are you sure you want to proceed"
