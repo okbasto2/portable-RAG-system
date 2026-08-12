@@ -1,5 +1,5 @@
 <#
-  install-model.ps1 - Install a new chat model for llama.cpp.
+  install-model.ps1 - Install a new chat model for llama.cpp (router mode).
 
   Usage:
     powershell -ExecutionPolicy Bypass -File scripts\install-model.ps1 [-Url <gguf-url>] [-Alias <alias>] [-Force]
@@ -7,17 +7,18 @@
 
   What it does:
     1. Validates the URL (must point to a .gguf file)
-    2. Downloads it into data\llama_models\
-    3. Points $MODEL_CHAT and the chat --alias in start-server.ps1 at the new model
-    4. Clears the semantic cache (old-model answers must not be replayed)
-    5. Offers to restart the stack if the chat server is running
+    2. Downloads it into data\llama_models\ (or reuses an existing valid file)
+    3. Registers it in data\llama_models\models.ini under <alias> - it becomes
+       selectable in Open WebUI immediately after a restart (router mode,
+       no start-server.ps1 edits needed; other installed models stay selectable)
+    4. Offers to restart the stack if the chat server is running
 
   Notes:
     - The model must be GGUF (llama.cpp format). Use a HuggingFace
-      /resolve/main/ link to the exact file, e.g.
-      https://huggingface.co/unsloth/Qwen3.5-4B-GGUF/resolve/main/Qwen3.5-4B-Q4_K_M.gguf
-    - For this host's 6 GB GPU, stay around 4B @ Q4_K_M (fully offloaded)
-      or up to ~8B @ Q4 (partial offload). Bigger models run on CPU.
+      /resolve/main/ link to the exact file.
+    - The 6 GB GPU holds one model at a time (--models-max 1); llama-server
+      swaps them on demand. First use of a model takes a few seconds to load.
+    - The semantic cache is per-model, so answers never cross models.
 #>
 param(
     [string]$Url,
@@ -31,47 +32,11 @@ $ErrorActionPreference = "Stop"
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ROOT      = Split-Path -Parent $SCRIPT_DIR
 $MODELS    = Join-Path $ROOT "data\llama_models"
+$MODELS_INI = Join-Path $MODELS "models.ini"
 $SERVER    = Join-Path $SCRIPT_DIR "start-server.ps1"
 $PYTHON    = if ($Python) { $Python } else { Join-Path $ROOT "apps\python_env\python.exe" }
 
 # ── helpers ────────────────────────────────────────────
-function Replace-Nth {
-    param([string]$Content, [string]$Pattern, [string]$Replacement, [int]$Nth = 0)
-    $regex = New-Object System.Text.RegularExpressions.Regex($Pattern)
-    $m = $regex.Match($Content)
-    for ($i = 0; $i -lt $Nth -and $m.Success; $i++) { $m = $m.NextMatch() }
-    if (-not $m.Success) { return $null }
-    return $Content.Substring(0, $m.Index) + $Replacement + $Content.Substring($m.Index + $m.Length)
-}
-
-function Set-ModelConfig {
-    param([string]$VarName, [string]$FileName, [string]$ModelAlias, [int]$AliasNth)
-    $content = [System.IO.File]::ReadAllText($SERVER)
-    $orig = $content
-    $content = Replace-Nth -Content $content -Pattern ('\$' + $VarName + ' = "[^"\r\n]*"') `
-        -Replacement ('$' + $VarName + ' = "$DATA\llama_models\' + $FileName + '"') -Nth 0
-    if ($null -eq $content) { throw "Could not locate the `$$VarName line in start-server.ps1 (format changed?)" }
-    $content = Replace-Nth -Content $content -Pattern "('--alias',[ \t]*)'[^']*'" `
-        -Replacement ("'--alias', '" + $ModelAlias + "'") -Nth $AliasNth
-    if ($null -eq $content) { throw "Could not locate the --alias line for $VarName (format changed?)" }
-    if ($content -ne $orig) {
-        $utf8 = New-Object System.Text.UTF8Encoding($false)
-        [System.IO.File]::WriteAllText($SERVER, $content, $utf8)
-        return $true
-    }
-    return $false
-}
-
-function Clear-Cache {
-    if (Test-Path $PYTHON) {
-        Write-Host "[i] Clearing semantic cache..."
-        & $PYTHON "$SCRIPT_DIR\clear-semantic-cache.py"
-    } else {
-        Write-Host "[warn] Portable python not found - skipping cache clear."
-        Write-Host "       Run later: apps\python_env\python.exe scripts\clear-semantic-cache.py"
-    }
-}
-
 function Test-GgufMagic {
     param([string]$Path)
     # Read only the first 4 bytes via a stream. ReadAllBytes throws on files >= 2 GB.
@@ -86,6 +51,36 @@ function Test-GgufMagic {
         }
     } catch {
         return $false
+    }
+}
+
+function Set-IniModel {
+    param([string]$IniPath, [string]$ModelAlias, [string]$ModelPath)
+    # sanitize the alias so it can't break INI syntax (section names / values)
+    $ModelAlias = $ModelAlias -replace '[\[\]=;$]', '-'
+    $section = "[$ModelAlias]`r`nmodel = $ModelPath`r`n"
+    if (-not (Test-Path $IniPath)) {
+        $content = "version = 1`r`n`r`n" + $section
+    } else {
+        $content = [System.IO.File]::ReadAllText($IniPath)
+        $pattern = '(?m)^\[' + [regex]::Escape($ModelAlias) + '\]\s*$[\s\S]*?(?=^\[|\z)'
+        if ([regex]::IsMatch($content, $pattern)) {
+            $content = [regex]::Replace($content, $pattern, $section)
+        } else {
+            if (-not $content.EndsWith("`n")) { $content += "`r`n" }
+            $content += "`r`n" + $section
+        }
+    }
+    [System.IO.File]::WriteAllText($IniPath, $content, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Clear-Cache {
+    if (Test-Path $PYTHON) {
+        Write-Host "[i] Clearing semantic cache..."
+        & $PYTHON "$SCRIPT_DIR\clear-semantic-cache.py"
+    } else {
+        Write-Host "[warn] Portable python not found - skipping cache clear."
+        Write-Host "       Run later: apps\python_env\python.exe scripts\clear-semantic-cache.py"
     }
 }
 
@@ -152,29 +147,24 @@ if ($sizeGB -gt 6) {
     Write-Host "[warn] Larger than this host's 6 GB GPU VRAM - expect partial offload or CPU-only fallback."
 }
 
-# ── 4. patch start-server.ps1 ──────────────────────────
-$changed = Set-ModelConfig -VarName "MODEL_CHAT" -FileName $fileName -ModelAlias $Alias -AliasNth 0
-if ($changed) {
-    Write-Host "[OK] start-server.ps1 -> chat model: $fileName (alias: $Alias)"
-} else {
-    Write-Host "[i] start-server.ps1 already configured for: $fileName"
-}
+# ── 4. register in models.ini ──────────────────────────
+$relPath = "data\llama_models\" + $fileName
+Set-IniModel -IniPath $MODELS_INI -ModelAlias $Alias -ModelPath $relPath
+Write-Host "[OK] Registered '$Alias' in models.ini -> $relPath"
+Write-Host "[i] All installed models stay selectable in Open WebUI (router mode)."
 
-# ── 5. semantic cache ──────────────────────────────────
-Clear-Cache
-
-# ── 6. restart hint ────────────────────────────────────
+# ── 5. restart hint ────────────────────────────────────
 $tcp = $false
 try { $tcp = Test-NetConnection -ComputerName 127.0.0.1 -Port 11434 -WarningAction SilentlyContinue -InformationLevel Quiet } catch { }
 Write-Host ""
 if ($tcp) {
-    $ans = Read-Host "Chat server (:11434) is still running the old model. Stop the stack now? [y/N]"
+    $ans = Read-Host "Chat server (:11434) is running without the new model. Restart the stack now? [y/N]"
     if ($ans -match '^[yY]') {
         & "$SCRIPT_DIR\stop-server.ps1"
-        Write-Host "Stack stopped. Start it again with start-project.bat to load '$Alias'."
+        Write-Host "Stack stopped. Start it again with start-project.bat - '$Alias' will appear in Open WebUI."
     } else {
-        Write-Host "Restart the stack later (stop-project.bat then start-project.bat) to load '$Alias'."
+        Write-Host "Restart the stack later (stop-project.bat then start-project.bat) to see '$Alias'."
     }
 } else {
-    Write-Host "Done. Start the stack (start-project.bat) to load the new model '$Alias'."
+    Write-Host "Done. Start the stack (start-project.bat) - '$Alias' will appear in Open WebUI."
 }

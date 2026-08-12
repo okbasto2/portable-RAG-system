@@ -31,6 +31,8 @@ $LLAMA_CPU = "$APPS\llamacpp\cpu"
 $LLAMA_CUDA = "$APPS\llamacpp\cuda"
 $MODEL_CHAT = "$DATA\llama_models\Qwen3.5-4B-Q4_K_M.gguf"
 $MODEL_EMBED = "$DATA\llama_models\embeddinggemma-300M-Q8_0.gguf"
+$MODEL_CHAT_ALIAS = "qwen3.5:4b"   # default alias shown in Open WebUI
+$MODELS_INI = "$DATA\llama_models\models.ini"   # router preset: every section = a selectable chat model
 
 # Ensure log directory exists
 New-Item -ItemType Directory -Force -Path $LOGS | Out-Null
@@ -143,7 +145,8 @@ function Launch-Service {
         [string[]]$Arguments,
         [string]$LogName = $Name.ToLower(),
         [scriptblock]$HealthCheck,
-        [hashtable]$ExtraEnv = @{}
+        [hashtable]$ExtraEnv = @{},
+        [string]$WorkDir = ""
     )
     
     Write-Output "[$Name] Starting..."
@@ -157,7 +160,7 @@ function Launch-Service {
         $psi = New-Object System.Diagnostics.ProcessStartInfo
         $psi.FileName = $ExePath
         $psi.Arguments = $Arguments -join " "
-        $psi.WorkingDirectory = Split-Path -Parent $ExePath
+        $psi.WorkingDirectory = if ($WorkDir) { $WorkDir } else { Split-Path -Parent $ExePath }
         $psi.UseShellExecute = $false
         $psi.CreateNoWindow = $true
         
@@ -222,14 +225,33 @@ $procs['Qdrant'] = Launch-Service -Name "Qdrant" `
     -Arguments @('--uri', 'http://127.0.0.1:6333') `
     -HealthCheck { (Test-NetConnection -ComputerName 127.0.0.1 -Port 6333 -WarningAction SilentlyContinue).TcpTestSucceeded }
 
-# ── 2. llama.cpp -- Chat (OpenAI-compatible API) ───────────
+# ── 2. llama.cpp -- Chat (router mode, multi-model) ────
+function Initialize-ModelsIni {
+    # Create the router preset on first start (each section = one selectable chat model).
+    # Only runs when models.ini is missing; install-model.ps1 maintains it afterwards.
+    if (Test-Path $MODELS_INI) { return }
+    New-Item -ItemType Directory -Force -Path "$DATA\llama_models" | Out-Null
+    if (Test-Path $MODEL_CHAT) {
+        $name = Split-Path $MODEL_CHAT -Leaf
+        $ini = "version = 1`r`n`r`n[$MODEL_CHAT_ALIAS]`r`nmodel = data\llama_models\$name`r`n"
+        [System.IO.File]::WriteAllText($MODELS_INI, $ini, (New-Object System.Text.UTF8Encoding($false)))
+        Write-Output "  [i] Created $MODELS_INI (default chat model: $name)"
+    } else {
+        Write-Output "[PREFLIGHT] WARNING: no chat model found and no models.ini - run install-model.bat first."
+    }
+}
+
+Initialize-ModelsIni
+
 $procs['LlamaChat'] = Launch-Service -Name "LlamaChat" `
     -ExePath $LLAMA_SERVER `
+    -WorkDir $ROOT `
     -Arguments @(
-        '-m', $MODEL_CHAT,
+        # WorkDir = repo root so the relative paths in models.ini resolve correctly
+        '--models-preset', $MODELS_INI,   # router mode: every model in models.ini is selectable
+        '--models-max', '1',              # keep 1 model in VRAM at a time (6 GB GPU); swap on demand
         '--host', '127.0.0.1',
         '--port', '11434',
-        '--alias', 'qwen3.5:4b',
         '-c', '8192',
         '-ngl', $NGL,
         '--reasoning', 'off',      # default: no thinking (Open WebUI toggle can re-enable per-request)

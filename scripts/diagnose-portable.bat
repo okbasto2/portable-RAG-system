@@ -78,6 +78,12 @@ if exist "%ROOT_DIR%data\llama_models\embeddinggemma-300M-Q8_0.gguf" (
 ) else (
     echo   [MISS] data\llama_models\embeddinggemma-300M-Q8_0.gguf ^(embedding model^)
 )
+
+if exist "%ROOT_DIR%data\llama_models\models.ini" (
+    echo   [OK] data\llama_models\models.ini ^(router model list^)
+) else (
+    echo   [INFO] data\llama_models\models.ini not created yet ^(auto-created on first start^)
+)
 echo.
 
 :: ── 4. Semantic Cache ────────────────────────────────

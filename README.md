@@ -113,7 +113,7 @@ The project keeps a clean root folder (`start-project.bat` & `stop-project.bat`)
     ├── fix-portable.py         # Relocates distlib launcher shebangs (#!<launcher_dir>\..\python.exe)
     ├── semantic-cache-server.py# SQLite-backed semantic response cache proxy (:11436)
     ├── clear-semantic-cache.py # Wipe all cached responses (keeps config)
-    ├── install-model.ps1       # Chat model installer engine (download + config patch)
+    ├── install-model.ps1       # Chat model installer engine (download + models.ini registration)
     ├── uninstall-model.ps1     # Model uninstaller engine (menu + config reset)
     ├── reset-data.py           # Data reset engine
     ├── diagnose-portable.bat   # System diagnostic tool
@@ -182,6 +182,8 @@ Hot-reloaded on every request — **no restart needed**:
 
 ## 📦 Installing & Removing Models
 
+The chat server runs in **router mode**: every model registered in `data\llama_models\models.ini` appears in Open WebUI's model picker, and you switch per chat. Models load on demand and swap in/out of VRAM (`--models-max 1`), so the 6 GB GPU holds one at a time — first use of a model takes a few seconds.
+
 ### Install a chat model (one command)
 
 Run `install-model.bat` — it prompts for a HuggingFace **GGUF** link — or pass it directly:
@@ -191,12 +193,12 @@ install-model.bat https://huggingface.co/<org>/<repo>/resolve/main/<model>.gguf 
 ```
 
 The installer:
-1. Downloads the `.gguf` into `data\llama_models\` (validates the GGUF magic bytes — a 404/HTML page is rejected)
-2. Points `$MODEL_CHAT` and the chat `--alias` in `scripts\start-server.ps1` at it — **this alias is the name shown in Open WebUI**
-3. Clears the semantic cache so answers from the previous model are never replayed
-4. Offers to restart the stack if the chat server is running
+1. Downloads the `.gguf` into `data\llama_models\` (validates the GGUF magic bytes — a 404/HTML page is rejected; an existing valid file is reused, no re-download)
+2. Registers it in `models.ini` under `[alias]` — **that alias is the name shown in Open WebUI** (llama.cpp exposes ids in uppercase, e.g. `QWEN3.5:4B`)
+3. Other installed models stay selectable — nothing is replaced
+4. Offers to restart the stack so the model appears in the picker
 
-Then run `start-project.bat` and pick the new model in Open WebUI.
+The semantic cache is **per-model**, so switching models never replays another model's answers — no cache clearing needed between benchmark runs.
 
 **GPU fit (6 GB VRAM):** ~4B @ Q4_K_M is fully offloaded; ~7–8B @ Q4 fits with partial offload; larger models fall back to CPU (the no-GPU deployment target runs any model on CPU anyway).
 
@@ -206,11 +208,11 @@ Then run `start-project.bat` and pick the new model in Open WebUI.
 uninstall-model.bat
 ```
 
-Shows a numbered list of installed models (active ones are marked). If you remove the active chat or embedding model, `start-server.ps1` is reset to the shipped defaults (`Qwen3.5-4B` / `embeddinggemma`) and the semantic cache is cleared for chat-model changes.
+Shows a numbered list of installed models with their aliases. Deleting one removes the file and its `models.ini` entry — it disappears from the picker after restart; the others are unaffected.
 
 ### Embedding models (careful)
 
-Installing a *different* embedding model (editing `$MODEL_EMBED` and `RAG_EMBEDDING_MODEL`) invalidates existing knowledge-base vectors — different dimensions and semantic space. Delete the Qdrant collection and re-upload documents. `uninstall-model.bat` reverts to `embeddinggemma` (768-dim, matching the default collection).
+Installing a *different* embedding model (editing `$MODEL_EMBED` and `RAG_EMBEDDING_MODEL`) invalidates existing knowledge-base vectors — different dimensions and semantic space. Delete the Qdrant collection and re-upload documents. The shipped default `embeddinggemma` is 768-dim, matching the default collection.
 
 ---
 
