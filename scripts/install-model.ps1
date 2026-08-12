@@ -72,6 +72,23 @@ function Clear-Cache {
     }
 }
 
+function Test-GgufMagic {
+    param([string]$Path)
+    # Read only the first 4 bytes via a stream. ReadAllBytes throws on files >= 2 GB.
+    try {
+        $fs = [System.IO.File]::OpenRead($Path)
+        try {
+            $buf = New-Object byte[] 4
+            $read = $fs.Read($buf, 0, 4)
+            return ($read -eq 4 -and $buf[0] -eq 0x47 -and $buf[1] -eq 0x47 -and $buf[2] -eq 0x55 -and $buf[3] -eq 0x46)
+        } finally {
+            $fs.Dispose()
+        }
+    } catch {
+        return $false
+    }
+}
+
 # ── 1. URL ─────────────────────────────────────────────
 if ([string]::IsNullOrWhiteSpace($Url)) {
     $Url = (Read-Host "HuggingFace GGUF download URL").Trim()
@@ -90,35 +107,47 @@ if ([string]::IsNullOrWhiteSpace($Alias)) {
     $Alias = (($fileName -replace '\.gguf$', '') -replace '\s+', '-').ToLower()
 }
 
-# ── 3. download ────────────────────────────────────────
+# ── 3. download (or reuse an existing valid file) ──────
 $dest = Join-Path $MODELS $fileName
 New-Item -ItemType Directory -Force -Path $MODELS | Out-Null
 
+$needDownload = $true
 if (Test-Path $dest) {
-    if (-not $Force) {
-        $ans = Read-Host "$fileName already exists - overwrite? [y/N]"
-        if ($ans -notmatch '^[yY]') { Write-Host "Aborted."; exit 1 }
+    if (Test-GgufMagic $dest) {
+        # Valid GGUF already on disk - reuse it (no multi-GB re-download)
+        if (-not $Force) {
+            $ans = Read-Host "$fileName already installed - use it as-is? [y/N]"
+            if ($ans -notmatch '^[yY]') { Write-Host "Aborted."; exit 1 }
+        }
+        Write-Host "[i] Using existing file: $fileName"
+        $needDownload = $false
+    } else {
+        if (-not $Force) {
+            $ans = Read-Host "$fileName exists but is not a valid GGUF - re-download? [y/N]"
+            if ($ans -notmatch '^[yY]') { Write-Host "Aborted."; exit 1 }
+        }
+        Write-Host "[i] Re-downloading $fileName ..."
     }
-    Write-Host "[i] Re-downloading $fileName ..."
 } else {
     Write-Host "[i] Downloading $fileName ..."
 }
 
-try {
-    Invoke-WebRequest -Uri $Url -OutFile $dest -UseBasicParsing
-} catch {
-    if (Test-Path $dest) { Remove-Item $dest -Force -ErrorAction SilentlyContinue }
-    throw "Download failed: $($_.Exception.Message)"
+if ($needDownload) {
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $dest -UseBasicParsing
+    } catch {
+        if (Test-Path $dest) { Remove-Item $dest -Force -ErrorAction SilentlyContinue }
+        throw "Download failed: $($_.Exception.Message)"
+    }
+    # GGUF magic check - a 404/HTML error page would otherwise be saved as .gguf
+    if (-not (Test-GgufMagic $dest)) {
+        Remove-Item $dest -Force
+        throw "Downloaded file is not a valid GGUF (magic bytes are not 'GGUF'). Check the URL."
+    }
 }
 
-# GGUF magic check - a 404/HTML error page would otherwise be saved as .gguf
-$head = [System.IO.File]::ReadAllBytes($dest)
-if (-not ($head.Length -ge 4 -and $head[0] -eq 0x47 -and $head[1] -eq 0x47 -and $head[2] -eq 0x55 -and $head[3] -eq 0x46)) {
-    Remove-Item $dest -Force
-    throw "Downloaded file is not a valid GGUF (magic bytes are not 'GGUF'). Check the URL."
-}
 $sizeGB = [math]::Round((Get-Item $dest).Length / 1GB, 2)
-Write-Host "[OK] Downloaded $fileName ($sizeGB GB)"
+Write-Host "[OK] $fileName ($sizeGB GB)"
 if ($sizeGB -gt 6) {
     Write-Host "[warn] Larger than this host's 6 GB GPU VRAM - expect partial offload or CPU-only fallback."
 }
